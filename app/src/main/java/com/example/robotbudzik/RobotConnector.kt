@@ -1,90 +1,83 @@
 package com.example.robotbudzik
 
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
 import android.util.Log
-import com.google.gson.Gson
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.*
 
+@SuppressLint("MissingPermission")
 object RobotConnector {
-    private val client = OkHttpClient()
-    private val gson = Gson()
+    private const val TAG = "RobotConnector"
+    private val MY_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-    // TWOJE IP Z TAILSCALE (zmień na właściwe!)
-    private const val BASE_URL = "http://100.x.y.z:3000"
+    private var bluetoothSocket: BluetoothSocket? = null
+    private var outStream: OutputStream? = null
+    private var inStream: InputStream? = null
 
-    // 1. Pobieranie pytań z serwera
-    suspend fun downloadQuestionsFromServer(): List<Question> = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url("$BASE_URL/api/pytania").build()
-        try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val body = response.body?.string()
-                // Zakładamy, że serwer zwraca listę obiektów Question w JSON
-                return@withContext gson.fromJson(body, Array<Question>::class.java).toList()
-            }
-        } catch (e: Exception) {
-            Log.e("RobotConnector", "Błąd pobierania pytań: ${e.message}")
-            emptyList()
-        }
-    }
+    fun connectToRobot(deviceName: String): Boolean {
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+        val pairedDevices: Set<BluetoothDevice>? = bluetoothAdapter.bondedDevices
+        val device = pairedDevices?.find { it.name == deviceName } ?: return false
 
-    // 2. Wysyłanie statystyk na serwer
-    fun uploadStatsToServer(stat: Statistic) {
-        val json = gson.toJson(stat)
-        val body = json.toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder().url("$BASE_URL/api/statystyki").post(body).build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.e("RobotConnector", "Błąd wysyłania statystyk: ${e.message}")
-            }
-            override fun onResponse(call: Call, response: Response) {
-                Log.d("RobotConnector", "Statystyki wysłane: ${response.code}")
-            }
-        })
-    }
-
-    // 3. Sprawdzanie statusu (Bot Connected)
-    suspend fun isRobotReachable(): Boolean = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url("$BASE_URL/api/status").build()
-        return@withContext try {
-            client.newCall(request).execute().isSuccessful
-        } catch (e: Exception) {
+        return try {
+            bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
+            bluetoothSocket?.connect()
+            outStream = bluetoothSocket?.outputStream
+            inStream = bluetoothSocket?.inputStream
+            true
+        } catch (e: IOException) {
             false
         }
     }
 
-    // 4. Przesyłanie danych WiFi do robota
-    fun sendWifiCredentials(ssid: String, pass: String, onResult: (Boolean) -> Unit) {
-        val json = mapOf("ssid" to ssid, "password" to pass)
-        val body = gson.toJson(json).toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder().url("$BASE_URL/api/konfiguruj-wifi").post(body).build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { onResult(false) }
-            override fun onResponse(call: Call, response: Response) { onResult(response.isSuccessful) }
-        })
+    fun sendToRobot(message: String) {
+        try {
+            outStream?.write((message + "\n").toByteArray())
+        } catch (e: IOException) {
+            Log.e(TAG, "Błąd wysyłania: $message")
+        }
     }
 
-    suspend fun fetchBatteryLevel(): Int = withContext(Dispatchers.IO) {
-        // Zakładamy, że serwer ma endpoint /api/bateria, który czyta z tabeli robot_status
-        val request = Request.Builder().url("$BASE_URL/api/bateria").build()
-        return@withContext try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext 50
-                val body = response.body?.string() ?: ""
-                // Serwer pewnie zwróci coś w stylu: {"battery": "85"}
-                val map = gson.fromJson(body, Map::class.java)
-                val value = map["battery"] as? String ?: "50"
-                value.toInt()
+    // --- TE NAZWY MUSZĄ SIĘ ZGADZAĆ Z VIEWMODEL ---
+
+    fun setMusic(action: String, songName: String) {
+        sendToRobot("MUSIC:$action|$songName")
+    }
+
+    fun sendAlarmData(question: Question, speed: Int) {
+        val msg = "ALARM_START|$speed|${question.content}|${question.ansA}|${question.ansB}|${question.ansC}|${question.ansD}|${question.correct}"
+        sendToRobot(msg)
+    }
+
+    fun listenForData(onBatteryReceived: (Int) -> Unit) {
+        Thread {
+            val buffer = ByteArray(1024)
+            while (bluetoothSocket?.isConnected == true) {
+                try {
+                    val bytes = inStream?.read(buffer) ?: 0
+                    if (bytes > 0) {
+                        val incoming = String(buffer, 0, bytes).trim()
+                        if (incoming.startsWith("BAT:")) {
+                            val level = incoming.substringAfter("BAT:").toIntOrNull() ?: 0
+                            onBatteryReceived(level)
+                        }
+                    }
+                } catch (e: IOException) { break }
             }
-        } catch (e: Exception) {
-            Log.e("RobotConnector", "Błąd pobierania baterii: ${e.message}")
-            50 // W razie błędu pokaż 50%
-        }
+        }.start()
+    }
+
+    fun sendWifiToRobot(ssid: String, pass: String) {
+        sendToRobot("WIFI:$ssid|$pass")
+    }
+
+    // Zapasowa funkcja dla serwera (opcjonalnie)
+    fun uploadStatsToServer(stat: Statistic) {
+        Log.d(TAG, "Statystyka gotowa do wysłania na serwer Tailscale")
     }
 }

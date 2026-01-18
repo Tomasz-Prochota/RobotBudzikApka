@@ -176,15 +176,15 @@ fun DashboardScreen(
                     modifier = Modifier
                         .size(10.dp)
                         .background(
-                            color = if (viewModel.isRobotConnected.value) Color.Green else Color.Red,
+                            color = if (viewModel.isBluetoothConnected.value) Color.Green else Color.Red,
                             shape = androidx.compose.foundation.shape.CircleShape
                         )
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (viewModel.isRobotConnected.value) "Bot Connected" else "Robot Disconnected",
+                    text = if (viewModel.isBluetoothConnected.value) "Bot Connected" else "Robot Disconnected",
                     fontSize = 12.sp,
-                    color = if (viewModel.isRobotConnected.value) Color(0xFF2E7D32) else Color.Red
+                    color = if (viewModel.isBluetoothConnected.value) Color(0xFF2E7D32) else Color.Red
                 )
             }
 
@@ -574,7 +574,6 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
     var wifiPassword by remember { mutableStateOf("") }
     var showRobotSongsDialog by remember { mutableStateOf(false) }
 
-    // Launcher do wybierania plików MP3 z pamięci telefonu
     val pickMp3Launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -613,84 +612,54 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                 .padding(16.dp)
                 .fillMaxSize()
         ) {
-            // --- SEKCJA GŁOŚNOŚCI ---
             Text("Głośność alarmu: ${viewModel.volume.value.toInt()}%", style = MaterialTheme.typography.labelLarge)
-            Slider(
-                value = viewModel.volume.value,
-                onValueChange = { viewModel.updateVolume(it) },
-                valueRange = 0f..100f
-            )
+            Slider(value = viewModel.volume.value, onValueChange = { viewModel.updateVolume(it) }, valueRange = 0f..100f)
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // --- SEKCJA SZYBKOŚCI ---
             Text("Szybkość ucieczki robota: ${viewModel.robotSpeed.value.toInt()}", style = MaterialTheme.typography.labelLarge)
-            Slider(
-                value = viewModel.robotSpeed.value,
-                onValueChange = { viewModel.updateSpeed(it) },
-                valueRange = 1f..10f // Skala od 1 do 10
-            )
+            Slider(value = viewModel.robotSpeed.value, onValueChange = { viewModel.updateSpeed(it) }, valueRange = 1f..10f)
 
             Spacer(modifier = Modifier.height(30.dp))
 
-            // --- SEKCJA DŹWIĘKU ---
             Text("ZARZĄDZANIE DŹWIĘKIEM", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
-                onClick = { pickMp3Launcher.launch("audio/mpeg") },
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Button(onClick = { pickMp3Launcher.launch("audio/mpeg") }, modifier = Modifier.fillMaxWidth()) {
                 Text("PRZEŚLIJ NOWĄ PIOSENKĘ (.MP3)")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Button(
-                onClick = { showRobotSongsDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-            ) {
+            Button(onClick = { showRobotSongsDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
                 Text("WYBIERZ Z PAMIĘCI ROBOTA")
             }
 
             Spacer(modifier = Modifier.height(30.dp))
 
-            // --- SEKCJA MOTYWU ---
-            Button(
-                onClick = { viewModel.toggleTheme() },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (viewModel.isDarkMode.value) Color.White else Color.Black,
-                    contentColor = if (viewModel.isDarkMode.value) Color.Black else Color.White
-                )
-            ) {
+            Button(onClick = { viewModel.toggleTheme() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = if (viewModel.isDarkMode.value) Color.White else Color.Black, contentColor = if (viewModel.isDarkMode.value) Color.Black else Color.White)) {
                 Text(if (viewModel.isDarkMode.value) "TRYB JASNY" else "TRYB CIEMNY")
             }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = { showWifiDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF607D8B))
-            ) {
-                Icon(Icons.Default.Wifi, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("POŁĄCZ ROBOTA Z WIFI")
+
+            Button(onClick = { showWifiDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF607D8B))) {
+                Icon(Icons.Default.Wifi, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("POŁĄCZ ROBOTA Z WIFI")
             }
 
-            // --- STOPKA Z AUTORAMI ---
-            Spacer(modifier = Modifier.weight(1f)) // Wypycha tekst na dół
-            Text(
-                text = "Autorzy: Bartosz W. i Tomasz P.",
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                color = Color.Gray.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.bodySmall
-            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(onClick = { viewModel.connectToRobot() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = if (viewModel.isBluetoothConnected.value) Color(0xFF4CAF50) else Color.Gray)) {
+                Text(if (viewModel.isBluetoothConnected.value) "POŁĄCZONO Z ROBOTEM" else "POŁĄCZ Z ROBOTEM (BT)")
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+            Text(text = "Autorzy: Bartosz W. i Tomasz P.", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = Color.Gray.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
         }
     }
 
-    // Okno dialogowe wyboru piosenek z robota
+    // --- DIALOGI PRZENIESIONE DO ŚRODKA FUNKCJI ---
+
     if (showRobotSongsDialog) {
         val robotSongs = listOf("Pobudka_Standard.mp3", "Heavy_Metal_Robot.mp3", "Ptaki_Lasy.mp3", "Syrena_Alarmowa.mp3")
         AlertDialog(
@@ -699,23 +668,16 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             text = {
                 Column {
                     robotSongs.forEach { song ->
-                        TextButton(
-                            onClick = {
-                                viewModel.updateSong(song)
-                                showRobotSongsDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                        TextButton(onClick = { viewModel.updateSong(song); showRobotSongsDialog = false }, modifier = Modifier.fillMaxWidth()) {
                             Text(song, textAlign = androidx.compose.ui.text.style.TextAlign.Left, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showRobotSongsDialog = false }) { Text("ZAMKNIJ") }
-            }
+            confirmButton = { TextButton(onClick = { showRobotSongsDialog = false }) { Text("ZAMKNIJ") } }
         )
     }
+
     if (showWifiDialog) {
         AlertDialog(
             onDismissRequest = { showWifiDialog = false },
@@ -723,17 +685,12 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             text = {
                 Column {
                     Text("Wybierz sieć:")
-                    // Lista sieci (symulacja menu rozwijanego)
                     viewModel.availableWifi.forEach { ssid ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { selectedSsid = ssid }.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(Modifier.fillMaxWidth().clickable { selectedSsid = ssid }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected = (selectedSsid == ssid), onClick = { selectedSsid = ssid })
                             Text(ssid)
                         }
                     }
-
                     Spacer(Modifier.height(16.dp))
                     OutlinedTextField(
                         value = wifiPassword,
@@ -756,9 +713,7 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                     }
                 }) { Text("POŁĄCZ") }
             },
-            dismissButton = {
-                TextButton(onClick = { showWifiDialog = false }) { Text("ANULUJ") }
-            }
+            dismissButton = { TextButton(onClick = { showWifiDialog = false }) { Text("ANULUJ") } }
         )
     }
 }
@@ -794,6 +749,11 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
             attempts++
             isRobotMuted = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.triggerAlarmSequence() // To wyśle pytanie do robota przez BT
+        startVibration(context)
     }
 
     Column(
