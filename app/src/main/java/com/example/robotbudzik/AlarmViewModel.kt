@@ -118,6 +118,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         RobotConnector.sendAlarmStop()
     }
 
+    fun resumeAlarm() {
+        isRobotMuted.value = false // Telefon zaczyna wibrować
+        RobotConnector.sendAlarmResume() // Robot zaczyna znowu uciekać
+    }
+
+
     fun connectRobotToWifi(ssid: String, pass: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             RobotConnector.sendWifiToRobot(ssid, pass)

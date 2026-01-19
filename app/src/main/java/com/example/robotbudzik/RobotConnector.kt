@@ -71,6 +71,10 @@ object RobotConnector {
         sendToRobot("ALARM_STOP")
     }
 
+    fun sendAlarmResume() {
+        sendToRobot("ALARM_RESUME")
+    }
+
 
     fun sendCurrentTimeToRobot() {
         val now = Calendar.getInstance()

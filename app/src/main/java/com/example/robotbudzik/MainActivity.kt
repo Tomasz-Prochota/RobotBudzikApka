@@ -41,8 +41,26 @@ class MainActivity : ComponentActivity() {
     private var screenState = mutableStateOf("dashboard")
     private var editingAlarm by mutableStateOf<Alarm?>(null)
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        if (!allGranted) {
+            Log.e("Permissions", "Użytkownik odmówił uprawnień Bluetooth!")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            requestPermissionLauncher.launch(arrayOf(
+                android.Manifest.permission.BLUETOOTH_SCAN,
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ))
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -830,7 +848,7 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
             // Koniec czasu = błąd, robot znowu ucieka
             if (viewModel.isRobotMuted.value) { // Sprawdzamy czy nadal uciszony
                 attempts++
-                viewModel.isRobotMuted.value = false
+                viewModel.resumeAlarm()
             }
         }
     }
@@ -895,7 +913,7 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                                     viewModel.sendStopToRobot()
                                     onDismiss()
                                 } else {
-                                    viewModel.isRobotMuted.value = false
+                                    viewModel.resumeAlarm()
                                 }
                             }
                         },
