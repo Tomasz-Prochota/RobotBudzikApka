@@ -43,6 +43,10 @@ object RobotConnector {
         }
     }
 
+    fun requestSongList() {
+        sendToRobot("GET_SONGS") // Prośba do robota: "Powiedz mi co masz na karcie SD"
+    }
+
     // --- TE NAZWY MUSZĄ SIĘ ZGADZAĆ Z VIEWMODEL ---
 
     fun setMusic(action: String, songName: String) {
@@ -54,7 +58,40 @@ object RobotConnector {
         sendToRobot(msg)
     }
 
-    fun listenForData(onBatteryReceived: (Int) -> Unit) {
+    fun sendAlarmTimeToRobot(hour: Int, minute: Int) {
+        val msg = String.format(Locale.getDefault(), "SET_ALARM:%02d:%02d", hour, minute)
+        sendToRobot(msg)
+    }
+
+    fun sendManualAlarmStart() {
+        sendToRobot("ALARM_START")
+    }
+
+    fun sendAlarmStop() {
+        sendToRobot("ALARM_STOP")
+    }
+
+
+    fun sendCurrentTimeToRobot() {
+        val now = Calendar.getInstance()
+        // Formatujemy czas na: TIME:GG:MM:SS
+        val timeStr = String.format(
+            Locale.getDefault(),
+            "TIME:%02d:%02d:%02d",
+            now.get(Calendar.HOUR_OF_DAY),
+            now.get(Calendar.MINUTE),
+            now.get(Calendar.SECOND)
+        )
+        sendToRobot(timeStr)
+        Log.d("RobotConnector", "Wysłano synchronizację czasu: $timeStr")
+    }
+
+    fun listenForData(
+        onBatteryReceived: (Int) -> Unit,
+        onWifiListReceived: (List <String>) -> Unit,
+        onSnoozeReceived: () -> Unit, // Dodajemy to
+        onSongsReceived: (List<String>) -> Unit
+    ) {
         Thread {
             val buffer = ByteArray(1024)
             while (bluetoothSocket?.isConnected == true) {
@@ -62,9 +99,23 @@ object RobotConnector {
                     val bytes = inStream?.read(buffer) ?: 0
                     if (bytes > 0) {
                         val incoming = String(buffer, 0, bytes).trim()
+
                         if (incoming.startsWith("BAT:")) {
                             val level = incoming.substringAfter("BAT:").toIntOrNull() ?: 0
                             onBatteryReceived(level)
+                        }
+                        else if (incoming == "SNOOZE_PRESSED") {
+                            onSnoozeReceived() // Wywołujemy, gdy robot wyśle sygnał
+                        }
+                        else if (incoming.startsWith("WIFI_LIST:")) {
+                            val list = incoming.substringAfter("WIFI_LIST:").split(",").filter { it.isNotEmpty() }
+                            onWifiListReceived(list)
+                        }
+                        else if (incoming.startsWith("SONG_LIST:")) {
+                            val list = incoming.substringAfter("SONG_LIST:")
+                                .split(",")
+                                .filter { it.lowercase().endsWith(".wav") } // ZMIANA na .wav
+                            onSongsReceived(list)
                         }
                     }
                 } catch (e: IOException) { break }
@@ -74,6 +125,10 @@ object RobotConnector {
 
     fun sendWifiToRobot(ssid: String, pass: String) {
         sendToRobot("WIFI:$ssid|$pass")
+    }
+
+    fun requestWifiScan() {
+        sendToRobot("WIFI_SCAN_REQ") // Prośba do robota: "Prześlij mi co widzisz"
     }
 
     // Zapasowa funkcja dla serwera (opcjonalnie)

@@ -95,7 +95,6 @@ class MainActivity : ComponentActivity() {
                             onBack = { screenState.value = "alarms" },
                             onSave = { h, m, days ->
                                 if (editingAlarm == null) {
-                                    // Dodajemy nowy i planujemy po otrzymaniu ID
                                     viewModel.addAlarm(h, m, days) { newAlarm ->
                                         scheduleSystemAlarm(context, newAlarm)
                                     }
@@ -104,6 +103,10 @@ class MainActivity : ComponentActivity() {
                                     viewModel.updateAlarm(updated)
                                     scheduleSystemAlarm(context, updated)
                                 }
+
+                                // --- NOWOŚĆ: Wysyłamy godzinę do pamięci robota ---
+                                viewModel.syncAlarmWithRobot(h, m)
+
                                 screenState.value = "alarms"
                             }
                         )
@@ -574,7 +577,7 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
     var wifiPassword by remember { mutableStateOf("") }
     var showRobotSongsDialog by remember { mutableStateOf(false) }
 
-    val pickMp3Launcher = rememberLauncherForActivityResult(
+    val pickWavLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
@@ -583,7 +586,7 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                 val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (c.moveToFirst()) {
                     val fileName = c.getString(nameIndex)
-                    if (fileName.lowercase().endsWith(".mp3")) {
+                    if (fileName.lowercase().endsWith(".wav")) {
                         viewModel.updateSong(fileName)
                         android.widget.Toast.makeText(context, "Przesłano: $fileName", android.widget.Toast.LENGTH_SHORT).show()
                     } else {
@@ -625,8 +628,8 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             Text("ZARZĄDZANIE DŹWIĘKIEM", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(onClick = { pickMp3Launcher.launch("audio/mpeg") }, modifier = Modifier.fillMaxWidth()) {
-                Text("PRZEŚLIJ NOWĄ PIOSENKĘ (.MP3)")
+            Button(onClick = { pickWavLauncher.launch("audio/x-wav") }, modifier = Modifier.fillMaxWidth()) {
+                Text("PRZEŚLIJ NOWĄ PIOSENKĘ (.WAV)")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -653,6 +656,17 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                 Text(if (viewModel.isBluetoothConnected.value) "POŁĄCZONO Z ROBOTEM" else "POŁĄCZ Z ROBOTEM (BT)")
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = { RobotConnector.sendManualAlarmStart() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            ) {
+                Text("TESTUJ UCIECZKĘ ROBOTA (START)")
+            }
+
+
             Spacer(modifier = Modifier.weight(1f))
             Text(text = "Autorzy: Bartosz W. i Tomasz P.", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = Color.Gray.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
         }
@@ -661,37 +675,101 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
     // --- DIALOGI PRZENIESIONE DO ŚRODKA FUNKCJI ---
 
     if (showRobotSongsDialog) {
-        val robotSongs = listOf("Pobudka_Standard.mp3", "Heavy_Metal_Robot.mp3", "Ptaki_Lasy.mp3", "Syrena_Alarmowa.mp3")
+        LaunchedEffect(Unit) { viewModel.refreshRobotSongs() }
+
         AlertDialog(
             onDismissRequest = { showRobotSongsDialog = false },
-            title = { Text("Piosenki na robocie") },
-            text = {
-                Column {
-                    robotSongs.forEach { song ->
-                        TextButton(onClick = { viewModel.updateSong(song); showRobotSongsDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                            Text(song, textAlign = androidx.compose.ui.text.style.TextAlign.Left, modifier = Modifier.fillMaxWidth())
-                        }
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Piosenki na robocie")
+                    if (viewModel.isScanningSongs.value) {
+                        Spacer(Modifier.width(8.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showRobotSongsDialog = false }) { Text("ZAMKNIJ") } }
+            text = {
+                Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                    if (viewModel.robotSongs.isEmpty() && !viewModel.isScanningSongs.value) {
+                        Text("Brak plików lub robot niepołączony.", color = Color.Gray)
+                    }
+
+                    LazyColumn {
+                        // JAWNE OKREŚLENIE TYPU song: String
+                        items(viewModel.robotSongs) { song: String ->
+                            TextButton(
+                                onClick = {
+                                    viewModel.updateSong(song)
+                                    showRobotSongsDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(song, textAlign = androidx.compose.ui.text.style.TextAlign.Left, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(onClick = { viewModel.refreshRobotSongs() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("ODŚWIEŻ LISTĘ")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRobotSongsDialog = false }) { Text("ZAMKNIJ") }
+            }
         )
     }
 
     if (showWifiDialog) {
+        // Gdy otwieramy okno, odświeżamy listę
+        LaunchedEffect(Unit) {
+            viewModel.refreshWifiList()
+        }
+
         AlertDialog(
             onDismissRequest = { showWifiDialog = false },
-            title = { Text("Konfiguracja WiFi Robota") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("WiFi Robota")
+                    if (viewModel.isScanningWifi.value) {
+                        Spacer(Modifier.width(8.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    }
+                }
+            },
             text = {
                 Column {
-                    Text("Wybierz sieć:")
-                    viewModel.availableWifi.forEach { ssid ->
-                        Row(Modifier.fillMaxWidth().clickable { selectedSsid = ssid }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = (selectedSsid == ssid), onClick = { selectedSsid = ssid })
-                            Text(ssid)
+                    if (viewModel.availableWifi.isEmpty() && !viewModel.isScanningWifi.value) {
+                        Text("Brak sieci. Kliknij skanuj.", color = Color.Gray)
+                    }
+
+                    // JAWNE określenie typu (ssid: String) naprawia błąd kompilatora
+                    viewModel.availableWifi.forEach { ssid: String ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedSsid = ssid }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = (selectedSsid == ssid),
+                                onClick = { selectedSsid = ssid }
+                            )
+                            Text(text = ssid, modifier = Modifier.padding(start = 8.dp))
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { viewModel.refreshWifiList() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("SKANUJ PONOWNIE")
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
                         value = wifiPassword,
                         onValueChange = { wifiPassword = it },
@@ -703,17 +781,15 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             },
             confirmButton = {
                 Button(onClick = {
-                    if (selectedSsid.isNotEmpty() && wifiPassword.isNotEmpty()) {
-                        viewModel.connectRobotToWifi(selectedSsid, wifiPassword) { success ->
-                            if (success) {
-                                android.widget.Toast.makeText(context, "Dane wysłane do robota!", android.widget.Toast.LENGTH_SHORT).show()
-                                showWifiDialog = false
-                            }
-                        }
+                    if (selectedSsid.isNotEmpty()) {
+                        viewModel.setupRobotWifi(selectedSsid, wifiPassword)
+                        showWifiDialog = false
                     }
                 }) { Text("POŁĄCZ") }
             },
-            dismissButton = { TextButton(onClick = { showWifiDialog = false }) { Text("ANULUJ") } }
+            dismissButton = {
+                TextButton(onClick = { showWifiDialog = false }) { Text("ANULUJ") }
+            }
         )
     }
 }
@@ -722,38 +798,46 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
     var attempts by remember { mutableIntStateOf(1) }
     var timeLeft by remember { mutableIntStateOf(20) }
-    var isRobotMuted by remember { mutableStateOf(false) } // Czy przycisk na robocie został wciśnięty
     var currentQuestion by remember { mutableStateOf<Question?>(null) }
     val startTime = remember { System.currentTimeMillis() }
 
-    // Ładowanie pytania (tylko poprawna odpowiedź nas interesuje na telefonie)
+    // Obserwujemy stan z ViewModelu - to klucz do łączności z robotem
+    val isRobotMuted = viewModel.isRobotMuted.value
+
+    // Ładowanie pytania i reset parametrów przy nowej próbie
     LaunchedEffect(attempts) {
         currentQuestion = viewModel.getRandomQuestion()
-        isRobotMuted = false // Po błędzie lub starcie robot znowu ucieka
         timeLeft = 20
     }
 
-    // Wibracje działają tylko gdy robot NIE jest uśpiony
+    // Wibracje reagują na stan z ViewModelu (pobierany z Bluetooth)
     LaunchedEffect(isRobotMuted) {
-        if (!isRobotMuted) startVibration(context) else stopVibration(context)
+        if (!isRobotMuted) {
+            startVibration(context)
+        } else {
+            stopVibration(context)
+        }
     }
 
-    // Licznik 20 sekund (działa tylko gdy robot uśpiony)
+    // Licznik 20 sekund - startuje tylko, gdy robot zostanie wyciszony
     LaunchedEffect(isRobotMuted) {
         if (isRobotMuted) {
+            timeLeft = 20 // Resetujemy stoper
             while (timeLeft > 0) {
                 delay(1000)
                 timeLeft--
             }
-            // Koniec czasu = błąd
-            attempts++
-            isRobotMuted = false
+            // Koniec czasu = błąd, robot znowu ucieka
+            if (viewModel.isRobotMuted.value) { // Sprawdzamy czy nadal uciszony
+                attempts++
+                viewModel.isRobotMuted.value = false
+            }
         }
     }
 
+    // Sygnał startu dla robota przy wejściu na ekran
     LaunchedEffect(Unit) {
-        viewModel.triggerAlarmSequence() // To wyśle pytanie do robota przez BT
-        startVibration(context)
+        viewModel.triggerAlarmSequence()
     }
 
     Column(
@@ -766,39 +850,66 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
     ) {
         Text(
             text = if (!isRobotMuted) "ROBOT UCIEKA!" else "ROBOT WYCISZONY",
-            fontSize = 32.sp, color = Color.White
+            fontSize = 32.sp,
+            color = Color.White,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
         )
-        Text("Próba: $attempts/10", fontSize = 20.sp, color = Color.LightGray)
+
+        Text(
+            text = "Próba: $attempts/10",
+            fontSize = 20.sp,
+            color = Color.LightGray
+        )
 
         if (isRobotMuted) {
-            Text("Czas na odpowiedź: $timeLeft s", fontSize = 24.sp, color = Color.Yellow)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Czas na odpowiedź: $timeLeft s",
+                fontSize = 24.sp,
+                color = Color.Yellow,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
         }
 
         Spacer(modifier = Modifier.height(40.dp))
 
-        // Przyciski A, B, C, D (działają tylko gdy robot uśpiony)
+        // Przyciski A, B, C, D
         val labels = listOf("A", "B", "C", "D")
         labels.chunked(2).forEach { row ->
-            Row {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 row.forEach { label ->
                     Button(
-                        enabled = isRobotMuted,
+                        enabled = isRobotMuted, // Przyciski aktywne tylko gdy robot stoi
                         onClick = {
                             if (label == currentQuestion?.correct) {
+                                // Sukces! Zapisujemy statystyki i zatrzymujemy robota na stałe
                                 val totalSec = ((System.currentTimeMillis() - startTime) / 1000).toInt()
                                 viewModel.saveStat(totalSec, attempts)
+                                viewModel.sendStopToRobot()
                                 stopVibration(context)
                                 onDismiss()
                             } else {
+                                // Błąd - robot znowu zaczyna uciekać
                                 attempts++
-                                if (attempts > 10) onDismiss() // Fail-safe
-                                isRobotMuted = false // Robot znowu ucieka
+                                if (attempts > 10) {
+                                    viewModel.sendStopToRobot()
+                                    onDismiss()
+                                } else {
+                                    viewModel.isRobotMuted.value = false
+                                }
                             }
                         },
-                        modifier = Modifier.padding(10.dp).size(120.dp, 80.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .size(120.dp, 80.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
                     ) {
-                        Text(label, fontSize = 24.sp)
+                        Text(label, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     }
                 }
             }
@@ -806,13 +917,17 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
 
         Spacer(modifier = Modifier.height(40.dp))
 
-        // SYMULACJA PRZYCISKU NA ROBOCIE
+        // SYMULACJA PRZYCISKU (na wypadek braku robota pod ręką)
         if (!isRobotMuted) {
             Button(
-                onClick = { isRobotMuted = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Green, contentColor = Color.Black)
+                onClick = { viewModel.isRobotMuted.value = true },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Green,
+                    contentColor = Color.Black
+                ),
+                modifier = Modifier.fillMaxWidth(0.8f).height(60.dp)
             ) {
-                Text("[ SYMULUJ PRZYCISK NA ROBOCIE ]")
+                Text("[ SYMULUJ PRZYCISK NA ROBOCIE ]", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
         }
     }
