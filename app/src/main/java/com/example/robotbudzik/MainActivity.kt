@@ -25,10 +25,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.BugReport
 import com.example.robotbudzik.ui.theme.RobotBudzikTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import android.provider.OpenableColumns
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -93,7 +104,10 @@ class MainActivity : ComponentActivity() {
                             onGoToAlarms = { screenState.value = "alarms" },
                             onGoToStats = { screenState.value = "stats" },
                             onGoToSettings = { screenState.value = "settings" },
-                            onGoToSport = { screenState.value = "sport" }
+                            onGoToSport = {
+                                viewModel.updateSpeed(viewModel.robotSpeed.value)
+                                screenState.value = "sport"
+                            }
                         )
                         "sport" -> SportModeScreen(viewModel = viewModel, onBack = { screenState.value = "dashboard" })
                         "alarms" -> AlarmsScreen(
@@ -103,7 +117,7 @@ class MainActivity : ComponentActivity() {
                                 editingAlarm = null
                                 screenState.value = "add_alarm"
                             },
-                            onEditAlarm = { alarm -> // NAPRAWA BŁĘDU 2
+                            onEditAlarm = { alarm ->
                                 editingAlarm = alarm
                                 screenState.value = "add_alarm"
                             }
@@ -129,10 +143,14 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         "stats" -> StatsScreen(viewModel = viewModel, onBack = { screenState.value = "dashboard" })
-                        "settings" -> SettingsScreen(viewModel = viewModel, onBack = { screenState.value = "dashboard" })
+                        "settings" -> SettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { screenState.value = "dashboard" },
+                            onStartAlarmTest = { screenState.value = "alarm" } // Ta linia pozwoli na skok do alarmu
+                        )
                         "alarm" -> AlarmPuzzleScreen(viewModel = viewModel, onDismiss = {
                             screenState.value = "dashboard"
-                            finishAndRemoveTask()
+                            Log.d("RobotAlarm", "Zagadka rozwiązana, powrót do Dashboardu")
                         })
                     }
                 }
@@ -318,56 +336,69 @@ fun SportModeScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             Text("STEROWANIE ROBOTEM", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Panel sterowania (Strzałki)
-            // GÓRA
-            ControlButton(Icons.Default.KeyboardArrowUp, "GÓRA") { viewModel.controlRobot("FORWARD") }
+            ControlButton(
+                icon = Icons.Default.KeyboardArrowUp,
+                desc = "GÓRA",
+                onStart = { viewModel.controlRobot("FORWARD") },
+                onStop = { viewModel.controlRobot("STOP") }
+            )
 
             Row {
                 // LEWO
-                ControlButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "LEWO") { viewModel.controlRobot("LEFT") }
-                Spacer(modifier = Modifier.width(80.dp))
+                ControlButton(
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    desc = "LEWO",
+                    onStart = { viewModel.controlRobot("LEFT") },
+                    onStop = { viewModel.controlRobot("STOP") }
+                )
+                Spacer(modifier = Modifier.width(60.dp))
                 // PRAWO
-                ControlButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "PRAWO") { viewModel.controlRobot("RIGHT") }
-            }
-
-            // DÓŁ
-            ControlButton(Icons.Default.KeyboardArrowDown, "DÓŁ") { viewModel.controlRobot("BACKWARD") }
-
-            Spacer(modifier = Modifier.height(40.dp))
-
-            Button(
-                onClick = { viewModel.toggleRobotMusic() },
-                modifier = Modifier.fillMaxWidth(0.7f).height(60.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (viewModel.isRobotMusicPlaying.value) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                ControlButton(
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    desc = "PRAWO",
+                    onStart = { viewModel.controlRobot("RIGHT") },
+                    onStop = { viewModel.controlRobot("STOP") }
                 )
-            ) {
-                Icon(
-                    if (viewModel.isRobotMusicPlaying.value) Icons.Default.MusicOff else Icons.Default.MusicNote,
-                    contentDescription = null
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(if (viewModel.isRobotMusicPlaying.value) "WYŁĄCZ MUZYKĘ" else "WŁĄCZ MUZYKĘ")
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = { viewModel.controlRobot("STOP") },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-            ) {
-                Text("STOP", fontSize = 20.sp)
-            }
+
+// DÓŁ
+            ControlButton(
+                icon = Icons.Default.KeyboardArrowDown,
+                desc = "DÓŁ",
+                onStart = { viewModel.controlRobot("BACKWARD") },
+                onStop = { viewModel.controlRobot("STOP") }
+            )
         }
     }
 }
 
 @Composable
-fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
-    FilledIconButton(
-        onClick = onClick,
-        modifier = Modifier.size(80.dp).padding(8.dp),
-        shape = androidx.compose.foundation.shape.CircleShape
+fun ControlButton(
+    icon: ImageVector,
+    desc: String,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(90.dp)
+            .padding(8.dp)
+            .background(MaterialTheme.colorScheme.primary, CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        try {
+                            onStart() // Jedź!
+                            tryAwaitRelease() // Czekaj na puszczenie palca
+                        } finally {
+                            onStop() // Zatrzymaj!
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = desc, modifier = Modifier.size(40.dp))
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(42.dp), tint = Color.White)
     }
 }
 
@@ -513,14 +544,11 @@ fun scheduleSystemAlarm(context: Context, alarm: Alarm, cancelOnly: Boolean = fa
         action = "com.example.robotbudzik.ALARM_TRIGGER"
     }
 
-    // KLUCZOWA ZMIANA: Używamy alarm.id zamiast liczyć minuty.
-    // To sprawia, że edycja i usuwanie działają precyzyjnie.
     val pendingIntent = PendingIntent.getBroadcast(
         context, alarm.id, intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    // Jeśli budzik jest nieaktywny LUB chcemy go tylko skasować (przy usuwaniu z listy)
     if (cancelOnly || !alarm.isActive) {
         alarmManager.cancel(pendingIntent)
         Log.d("RobotAlarm", "Budzik ID ${alarm.id} został usunięty z kalendarza systemowego")
@@ -588,7 +616,7 @@ fun StatsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
+fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit, onStartAlarmTest: () -> Unit) {
     val context = LocalContext.current
     var showWifiDialog by remember { mutableStateOf(false) }
     var selectedSsid by remember { mutableStateOf("") }
@@ -639,7 +667,7 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(20.dp))
 
             Text("Szybkość ucieczki robota: ${viewModel.robotSpeed.value.toInt()}", style = MaterialTheme.typography.labelLarge)
-            Slider(value = viewModel.robotSpeed.value, onValueChange = { viewModel.updateSpeed(it) }, valueRange = 1f..10f)
+            Slider(value = viewModel.robotSpeed.value, onValueChange = { viewModel.updateSpeed(it) }, valueRange = 0f..10f)
 
             Spacer(modifier = Modifier.height(30.dp))
 
@@ -656,13 +684,29 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                 Text("WYBIERZ Z PAMIĘCI ROBOTA")
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Button(onClick = { viewModel.toggleTheme() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = if (viewModel.isDarkMode.value) Color.White else Color.Black, contentColor = if (viewModel.isDarkMode.value) Color.Black else Color.White)) {
                 Text(if (viewModel.isDarkMode.value) "TRYB JASNY" else "TRYB CIEMNY")
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text("TRYB PYTAŃ", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                FilterChip(
+                    selected = !viewModel.isInputMode.value,
+                    onClick = { viewModel.setQuestionMode(false) },
+                    label = { Text("ABCD") }
+                )
+                FilterChip(
+                    selected = viewModel.isInputMode.value,
+                    onClick = { viewModel.setQuestionMode(true) },
+                    label = { Text("ZADANIE (INPUT)") }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(onClick = { showWifiDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF607D8B))) {
                 Icon(Icons.Default.Wifi, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("POŁĄCZ ROBOTA Z WIFI")
@@ -677,11 +721,16 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Button(
-                onClick = { RobotConnector.sendManualAlarmStart() },
+                onClick = onStartAlarmTest, // Teraz wywołuje skok do ekranu alarmu
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Red,
+                    contentColor = Color.White
+                )
             ) {
-                Text("TESTUJ UCIECZKĘ ROBOTA (START)")
+                Icon(Icons.Default.BugReport, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("TESTUJ CAŁY BUDZIK")
             }
 
 
@@ -814,135 +863,156 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
 @Composable
 fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var attempts by remember { mutableIntStateOf(1) }
     var timeLeft by remember { mutableIntStateOf(20) }
-    var currentQuestion by remember { mutableStateOf<Question?>(null) }
+    var userInput by remember { mutableStateOf("") }
     val startTime = remember { System.currentTimeMillis() }
+    var isFinishing by remember { mutableStateOf(false) }
 
-    // Obserwujemy stan z ViewModelu - to klucz do łączności z robotem
+    val currentQuestion = viewModel.activeQuestion.value
     val isRobotMuted = viewModel.isRobotMuted.value
+    val isInputMode = viewModel.isInputMode.value
 
-    // Ładowanie pytania i reset parametrów przy nowej próbie
+    // Ładowanie pytania / zadania przy starcie i każdej nowej próbie
     LaunchedEffect(attempts) {
-        currentQuestion = viewModel.getRandomQuestion()
-        timeLeft = 20
-    }
-
-    // Wibracje reagują na stan z ViewModelu (pobierany z Bluetooth)
-    LaunchedEffect(isRobotMuted) {
-        if (!isRobotMuted) {
-            startVibration(context)
+        if (!isInputMode) {
+            // W trybie ABCD pobieramy nowe pytanie z bazy
+            viewModel.triggerAlarmSequence()
         } else {
-            stopVibration(context)
+            // W trybie INPUT generujemy nowe zadanie matematyczne
+            viewModel.triggerAlarmSequence()
         }
+        timeLeft = 20
+        userInput = ""
     }
 
-    // Licznik 20 sekund - startuje tylko, gdy robot zostanie wyciszony
-    LaunchedEffect(isRobotMuted) {
-        if (isRobotMuted) {
-            timeLeft = 20 // Resetujemy stoper
-            while (timeLeft > 0) {
+    // Zarządzanie wibracjami
+    LaunchedEffect(isRobotMuted, isFinishing) {
+        if (!isRobotMuted && !isFinishing) startVibration(context) else stopVibration(context)
+    }
+
+    // Licznik czasu 20 sekund
+    LaunchedEffect(isRobotMuted, isFinishing) {
+        if (isRobotMuted && !isFinishing) {
+            timeLeft = 20
+            while (timeLeft > 0 && viewModel.isRobotMuted.value && !isFinishing) {
                 delay(1000)
                 timeLeft--
             }
-            // Koniec czasu = błąd, robot znowu ucieka
-            if (viewModel.isRobotMuted.value) { // Sprawdzamy czy nadal uciszony
+            // Jeśli czas minął (użytkownik nie zdążył odpowiedzieć)
+            if (timeLeft <= 0 && !isFinishing && viewModel.isRobotMuted.value) {
                 attempts++
-                viewModel.resumeAlarm()
+                if (attempts > 10) {
+                    isFinishing = true
+                    scope.launch {
+                        viewModel.sendStopToRobot("LIMIT")
+                        delay(500)
+                        onDismiss()
+                    }
+                } else {
+                    // NAPRAWA BŁĘDU: Używamy "TIMEOUT" zamiast nieistniejącego label
+                    viewModel.handleWrongAnswer("TIMEOUT")
+                }
             }
         }
     }
 
-    // Sygnał startu dla robota przy wejściu na ekran
-    LaunchedEffect(Unit) {
-        viewModel.triggerAlarmSequence()
-    }
-
+    // UI ALARMU
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (!isRobotMuted) Color.Red else Color(0xFF1A1A1A))
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().background(if (!isRobotMuted) Color.Red else Color(0xFF1A1A1A)).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
             text = if (!isRobotMuted) "ROBOT UCIEKA!" else "ROBOT WYCISZONY",
-            fontSize = 32.sp,
-            color = Color.White,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            fontSize = 32.sp, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
         )
-
-        Text(
-            text = "Próba: $attempts/10",
-            fontSize = 20.sp,
-            color = Color.LightGray
-        )
+        Text(text = "Próba: $attempts/10", fontSize = 20.sp, color = Color.LightGray)
 
         if (isRobotMuted) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Czas na odpowiedź: $timeLeft s",
-                fontSize = 24.sp,
-                color = Color.Yellow,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-            )
-        }
+            Text(text = "Czas: $timeLeft s", fontSize = 24.sp, color = Color.Yellow)
+            Spacer(modifier = Modifier.height(40.dp))
 
-        Spacer(modifier = Modifier.height(40.dp))
-
-        // Przyciski A, B, C, D
-        val labels = listOf("A", "B", "C", "D")
-        labels.chunked(2).forEach { row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                row.forEach { label ->
-                    Button(
-                        enabled = isRobotMuted, // Przyciski aktywne tylko gdy robot stoi
-                        onClick = {
-                            if (label == currentQuestion?.correct) {
-                                // Sukces! Zapisujemy statystyki i zatrzymujemy robota na stałe
-                                val totalSec = ((System.currentTimeMillis() - startTime) / 1000).toInt()
-                                viewModel.saveStat(totalSec, attempts)
-                                viewModel.sendStopToRobot()
+            if (isInputMode) {
+                // --- TRYB INPUT ---
+                OutlinedTextField(
+                    value = userInput,
+                    onValueChange = { userInput = it },
+                    modifier = Modifier.fillMaxWidth(0.7f),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = {
+                        if (isFinishing || userInput.isEmpty()) return@Button
+                        if (userInput.toIntOrNull() == viewModel.currentMathResult.intValue) {
+                            isFinishing = true
+                            scope.launch {
+                                viewModel.sendStopToRobot(userInput)
                                 stopVibration(context)
+                                viewModel.saveStat(((System.currentTimeMillis() - startTime) / 1000).toInt(), attempts)
+                                delay(500)
                                 onDismiss()
-                            } else {
-                                // Błąd - robot znowu zaczyna uciekać
-                                attempts++
-                                if (attempts > 10) {
-                                    viewModel.sendStopToRobot()
-                                    onDismiss()
-                                } else {
-                                    viewModel.resumeAlarm()
-                                }
                             }
-                        },
-                        modifier = Modifier
-                            .padding(10.dp)
-                            .size(120.dp, 80.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black,
-                            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
-                        ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
-                    ) {
-                        Text(label, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        } else {
+                            attempts++
+                            if (attempts > 10) {
+                                isFinishing = true
+                                scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
+                            } else {
+                                // NAPRAWA BŁĘDU: Używamy userInput zamiast nieistniejącego label
+                                viewModel.handleWrongAnswer(userInput)
+                            }
+                        }
+                    },
+                    modifier = Modifier.size(200.dp, 60.dp)
+                ) { Text("SPRAWDZ") }
+            } else {
+                // --- TRYB ABCD ---
+                val labels = listOf("A", "B", "C", "D")
+                labels.chunked(2).forEach { row ->
+                    Row {
+                        row.forEach { label ->
+                            Button(
+                                onClick = {
+                                    if (isFinishing) return@Button
+
+                                    if (label.equals(currentQuestion?.correct, ignoreCase = true)) {
+                                        isFinishing = true
+                                        scope.launch {
+                                            viewModel.sendStopToRobot(label)
+                                            stopVibration(context)
+                                            viewModel.saveStat(((System.currentTimeMillis() - startTime) / 1000).toInt(), attempts)
+                                            delay(500)
+                                            onDismiss()
+                                        }
+                                    } else {
+                                        attempts++
+                                        if (attempts > 10) {
+                                            isFinishing = true
+                                            scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
+                                        } else {
+                                            // Tutaj 'label' istnieje, bo jest częścią pętli forEach
+                                            viewModel.handleWrongAnswer(label)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.padding(10.dp).size(140.dp, 90.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                            ) { Text(label, fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+                        }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(40.dp))
-
-        // SYMULACJA PRZYCISKU (na wypadek braku robota pod ręką)
-        if (!isRobotMuted) {
+        if (!isRobotMuted && !isFinishing) {
+            Spacer(modifier = Modifier.height(40.dp))
             Button(
                 onClick = { viewModel.isRobotMuted.value = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Green,
-                    contentColor = Color.Black
-                ),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Green, contentColor = Color.Black),
                 modifier = Modifier.fillMaxWidth(0.8f).height(60.dp)
             ) {
                 Text("[ SYMULUJ PRZYCISK NA ROBOCIE ]", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)

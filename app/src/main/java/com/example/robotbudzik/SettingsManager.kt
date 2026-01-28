@@ -19,5 +19,11 @@ class SettingsManager(context: Context) {
         prefs.edit().putString("selected_song", songName).apply()
     }
 
+    fun saveQuestionMode(isInputMode: Boolean) {
+        prefs.edit().putBoolean("is_input_mode", isInputMode).apply()
+    }
+
+    fun isInputMode(): Boolean = prefs.getBoolean("is_input_mode", false)
+
     fun getSelectedSong(): String = prefs.getString("selected_song", "Brak wybranej") ?: "Brak wybranej"
     }

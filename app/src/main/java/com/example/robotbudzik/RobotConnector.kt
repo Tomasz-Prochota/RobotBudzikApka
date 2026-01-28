@@ -37,25 +37,43 @@ object RobotConnector {
 
     fun sendToRobot(message: String) {
         try {
-            outStream?.write((message + "\n").toByteArray())
+            val msgWithNewline = if (message.endsWith("\n")) message else message + "\n"
+            outStream?.write(msgWithNewline.toByteArray())
+            outStream?.flush()
+
+            // SZCZEGÓŁOWY LOG DLA CIEBIE
+            Log.d("RobotConnector", ">>> BLUETOOTH SEND: $msgWithNewline")
         } catch (e: IOException) {
-            Log.e(TAG, "Błąd wysyłania: $message")
+            Log.e("RobotConnector", "!!! BŁĄD WYSYŁANIA: $message")
         }
     }
 
     fun requestSongList() {
-        sendToRobot("GET_SONGS") // Prośba do robota: "Powiedz mi co masz na karcie SD"
+        sendToRobot("GET_SONGS")
     }
-
-    // --- TE NAZWY MUSZĄ SIĘ ZGADZAĆ Z VIEWMODEL ---
 
     fun setMusic(action: String, songName: String) {
         sendToRobot("MUSIC:$action|$songName")
     }
 
-    fun sendAlarmData(question: Question, speed: Int) {
-        val msg = "ALARM_START|$speed|${question.content}|${question.ansA}|${question.ansB}|${question.ansC}|${question.ansD}|${question.correct}"
+    fun sendAlarmData(question: Question, speed: Int, volume: Int, song: String) {
+        // Format: ALARM_START|speed|volume|song.wav|ABCD|Pytanie|A|B|C|D|poprawna
+        val msg = "ALARM_START|$speed|$volume|$song|ABCD|${question.content}|${question.ansA}|${question.ansB}|${question.ansC}|${question.ansD}|${question.correct.lowercase()}"
         sendToRobot(msg)
+    }
+
+    fun sendMathData(expression: String, result: Int, speed: Int, volume: Int, song: String) {
+        // Format: ALARM_START|speed|volume|song.wav|INPUT|wyrażenie|wynik
+        val msg = "ALARM_START|$speed|$volume|$song|INPUT|$expression|$result"
+        sendToRobot(msg)
+    }
+
+    fun sendSpeed(speed: Int) {
+        sendToRobot("SET_SPEED:$speed")
+    }
+
+    fun sendVolume(volume: Int) {
+        sendToRobot("SET_VOLUME:$volume")
     }
 
     fun sendAlarmTimeToRobot(hour: Int, minute: Int) {
@@ -67,8 +85,8 @@ object RobotConnector {
         sendToRobot("ALARM_START")
     }
 
-    fun sendAlarmStop() {
-        sendToRobot("ALARM_STOP")
+    fun sendAlarmStop(finalResult: String) {
+        sendToRobot("ALARM_STOP|$finalResult")
     }
 
     fun sendAlarmResume() {
@@ -78,7 +96,6 @@ object RobotConnector {
 
     fun sendCurrentTimeToRobot() {
         val now = Calendar.getInstance()
-        // Formatujemy czas na: TIME:GG:MM:SS
         val timeStr = String.format(
             Locale.getDefault(),
             "TIME:%02d:%02d:%02d",
@@ -93,7 +110,7 @@ object RobotConnector {
     fun listenForData(
         onBatteryReceived: (Int) -> Unit,
         onWifiListReceived: (List <String>) -> Unit,
-        onSnoozeReceived: () -> Unit, // Dodajemy to
+        onSnoozeReceived: () -> Unit,
         onSongsReceived: (List<String>) -> Unit
     ) {
         Thread {
@@ -109,7 +126,7 @@ object RobotConnector {
                             onBatteryReceived(level)
                         }
                         else if (incoming == "SNOOZE_PRESSED") {
-                            onSnoozeReceived() // Wywołujemy, gdy robot wyśle sygnał
+                            onSnoozeReceived()
                         }
                         else if (incoming.startsWith("WIFI_LIST:")) {
                             val list = incoming.substringAfter("WIFI_LIST:").split(",").filter { it.isNotEmpty() }
@@ -118,7 +135,7 @@ object RobotConnector {
                         else if (incoming.startsWith("SONG_LIST:")) {
                             val list = incoming.substringAfter("SONG_LIST:")
                                 .split(",")
-                                .filter { it.lowercase().endsWith(".wav") } // ZMIANA na .wav
+                                .filter { it.lowercase().endsWith(".wav") }
                             onSongsReceived(list)
                         }
                     }
@@ -132,10 +149,9 @@ object RobotConnector {
     }
 
     fun requestWifiScan() {
-        sendToRobot("WIFI_SCAN_REQ") // Prośba do robota: "Prześlij mi co widzisz"
+        sendToRobot("WIFI_SCAN_REQ")
     }
 
-    // Zapasowa funkcja dla serwera (opcjonalnie)
     fun uploadStatsToServer(stat: Statistic) {
         Log.d(TAG, "Statystyka gotowa do wysłania na serwer Tailscale")
     }

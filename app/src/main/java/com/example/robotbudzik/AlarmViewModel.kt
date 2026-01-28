@@ -10,12 +10,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import android.util.Log
 import java.util.*
 
 class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val alarmDao = db.alarmDao()
     private val settings = SettingsManager(application)
+    private var lastQuestionId = -1
 
     val allAlarms: Flow<List<Alarm>> = alarmDao.getAllAlarms()
     val allStats = alarmDao.getRecentStats()
@@ -29,6 +31,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     var isBluetoothConnected = mutableStateOf(false)
     var isRobotMusicPlaying = mutableStateOf(false)
     var isRobotMuted = mutableStateOf(false)
+    var isInputMode = mutableStateOf(settings.isInputMode())
+    var currentMathResult = mutableIntStateOf(0)
+    var activeQuestion = mutableStateOf<Question?>(null)
 
     // Stan skanowania WiFi i Muzyki
     var availableWifi = mutableStateListOf<String>()
@@ -94,6 +99,38 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setQuestionMode(isInput: Boolean) {
+        isInputMode.value = isInput
+        settings.saveQuestionMode(isInput)
+    }
+
+    fun generateMathProblem(): String {
+        val n1 = (1..10).random()
+        val n2 = (1..10).random()
+        val n3 = (1..10).random()
+        val ops = listOf("+", "-", "*")
+        val op1 = ops.random()
+        val op2 = ops.random()
+
+        val result = if (op2 == "*" && op1 != "*") {
+            if (op1 == "+") n1 + (n2 * n3) else n1 - (n2 * n3)
+        } else {
+            val sub = when (op1) {
+                "+" -> n1 + n2
+                "-" -> n1 - n2
+                else -> n1 * n2
+            }
+            when (op2) {
+                "+" -> sub + n3
+                "-" -> sub - n3
+                else -> sub * n3
+            }
+        }
+        currentMathResult.intValue = result
+        return "$n1 $op1 $n2 $op2 $n3"
+    }
+
+
     fun toggleRobotMusic() {
         isRobotMusicPlaying.value = !isRobotMusicPlaying.value
         val action = if (isRobotMusicPlaying.value) "PLAY" else "STOP"
@@ -107,40 +144,68 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun triggerAlarmSequence() {
         isRobotMuted.value = false
         viewModelScope.launch {
-            val question = alarmDao.getRandomQuestion()
-            question?.let {
-                RobotConnector.sendAlarmData(it, robotSpeed.value.toInt())
+            val speed = robotSpeed.value.toInt()
+            val vol = volume.value.toInt() // Pobieramy głośność z suwaka
+            val song = selectedSong.value   // Pobieramy nazwę piosenki
+
+            if (isInputMode.value) {
+                val problem = generateMathProblem()
+                RobotConnector.sendMathData(problem, currentMathResult.intValue, speed, vol, song)
+            } else {
+                val question = alarmDao.getRandomQuestion()
+                question?.let {
+                    RobotConnector.sendAlarmData(it, speed, vol, song)
+                }
             }
         }
     }
 
-    fun sendStopToRobot() {
-        RobotConnector.sendAlarmStop()
+    fun sendWrongAnswerToRobot(userChoice: String) {
+        val choice = userChoice.lowercase()
+        RobotConnector.sendToRobot("ALARM_WRONG|$choice")
     }
 
-    fun resumeAlarm() {
-        isRobotMuted.value = false // Telefon zaczyna wibrować
-        RobotConnector.sendAlarmResume() // Robot zaczyna znowu uciekać
+    fun sendStopToRobot(userChoice: String) {
+        // .lowercase() sprawi, że "B" zamieni się w "b", a "15" zostanie "15"
+        val formattedChoice = userChoice.lowercase(Locale.getDefault())
+        RobotConnector.sendAlarmStop(formattedChoice)
+        Log.d("RobotAlarm", "Wysłano sygnał STOP z wynikiem: $formattedChoice")
+    }
+
+    fun handleWrongAnswer(userChoice: String) {
+        viewModelScope.launch {
+            val choice = userChoice.lowercase()
+            RobotConnector.sendToRobot("ALARM_WRONG|$choice")
+            Log.d("RobotAlarm", "Wysłano do robota informację o błędzie: $choice")
+            delay(1500)
+
+            triggerAlarmSequence()
+        }
     }
 
 
     fun connectRobotToWifi(ssid: String, pass: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             RobotConnector.sendWifiToRobot(ssid, pass)
-            onResult(true) // Informujemy interfejs, że wysłano dane
+            onResult(true)
         }
     }
 
     fun setupRobotWifi(ssid: String, pass: String) {
         viewModelScope.launch {
-            // Ta funkcja wywołuje komendę w RobotConnector
             RobotConnector.sendWifiToRobot(ssid, pass)
         }
     }
 
     suspend fun getRandomQuestion(): Question? {
-        return alarmDao.getRandomQuestion()
+        var newQuestion = alarmDao.getRandomQuestion()
+        if (newQuestion?.id == lastQuestionId) {
+            newQuestion = alarmDao.getRandomQuestion()
+        }
+        lastQuestionId = newQuestion?.id ?: -1
+        return newQuestion
     }
+
 
     fun refreshWifiList() {
         if (isBluetoothConnected.value) {
@@ -159,11 +224,19 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun updateVolume(newVol: Float) {
         volume.value = newVol
         settings.saveVolume(newVol)
+        // NATYCHMIASTOWA SYNCHRONIZACJA
+        if (isBluetoothConnected.value) {
+            RobotConnector.sendVolume(newVol.toInt())
+        }
     }
 
     fun updateSpeed(newSpeed: Float) {
         robotSpeed.value = newSpeed
         settings.saveRobotSpeed(newSpeed)
+        // NATYCHMIASTOWA SYNCHRONIZACJA (dla trybu sportowego)
+        if (isBluetoothConnected.value) {
+            RobotConnector.sendSpeed(newSpeed.toInt())
+        }
     }
 
     fun updateSong(name: String) {
@@ -206,13 +279,17 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             val existing = alarmDao.getRandomQuestion()
             if (existing == null) {
                 val pytania = listOf(
-                    Question(content = "15 * 4 = ?", ansA = "50", ansB = "60", ansC = "70", ansD = "65", correct = "B"),
-                    Question(content = "Stolica Polski?", ansA = "Kraków", ansB = "Gdańsk", ansC = "Warszawa", ansD = "Poznań", correct = "C")
+                    Question(content = "Ile to jest 15 * 4?", ansA = "50", ansB = "60", ansC = "70", ansD = "65", correct = "B"),
+                    Question(content = "Symbol Fe to?", ansA = "Zloto", ansB = "Srebro", ansC = "Zelazo", ansD = "Miedz", correct = "C"),
+                    Question(content = "Stolica Polski?", ansA = "Krakow", ansB = "Gdansk", ansC = "Warszawa", ansD = "Wroclaw", correct = "C"),
+                    Question(content = "Ile minut ma 2.5h?", ansA = "120", ansB = "150", ansC = "180", ansD = "140", correct = "B"),
+                    Question(content = "Co jest sercem robota?", ansA = "Arduino", ansB = "ESP32", ansC = "Raspberry", ansD = "STM32", correct = "B")
                 )
                 pytania.forEach { alarmDao.insertQuestion(it) }
             }
         }
     }
+
 
     fun updateNextAlarmDisplay(alarms: List<Alarm>) {
         val activeAlarms = alarms.filter { it.isActive }
