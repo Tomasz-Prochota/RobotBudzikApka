@@ -41,7 +41,6 @@ object RobotConnector {
             outStream?.write(msgWithNewline.toByteArray())
             outStream?.flush()
 
-            // SZCZEGÓŁOWY LOG DLA CIEBIE
             Log.d("RobotConnector", ">>> BLUETOOTH SEND: $msgWithNewline")
         } catch (e: IOException) {
             Log.e("RobotConnector", "!!! BŁĄD WYSYŁANIA: $message")
@@ -57,7 +56,7 @@ object RobotConnector {
     }
 
     fun sendAlarmData(question: Question, speed: Int, volume: Int, song: String) {
-        // Format: ALARM_START|speed|volume|song.wav|ABCD|Pytanie|A|B|C|D|poprawna
+        // Format: ALARM_START|speed|volume|song.wav|ABCD|Treść|OdpA|OdpB|OdpC|OdpD|poprawna
         val msg = "ALARM_START|$speed|$volume|$song|ABCD|${question.content}|${question.ansA}|${question.ansB}|${question.ansC}|${question.ansD}|${question.correct.lowercase()}"
         sendToRobot(msg)
     }
@@ -86,7 +85,7 @@ object RobotConnector {
     }
 
     fun sendAlarmStop(finalResult: String) {
-        sendToRobot("ALARM_STOP|$finalResult")
+        sendToRobot("ALARM_STOP|${finalResult.lowercase()}")
     }
 
     fun sendAlarmResume() {

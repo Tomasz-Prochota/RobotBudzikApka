@@ -136,7 +136,6 @@ class MainActivity : ComponentActivity() {
                                     scheduleSystemAlarm(context, updated)
                                 }
 
-                                // --- NOWOŚĆ: Wysyłamy godzinę do pamięci robota ---
                                 viewModel.syncAlarmWithRobot(h, m)
 
                                 screenState.value = "alarms"
@@ -195,7 +194,6 @@ fun DashboardScreen(
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text("ROBOT BUDZIK") }) }
     ) { pad ->
-        // GŁÓWNA KOLUMNA (trzyma wszystko wewnątrz Scaffold)
         Column(
             modifier = Modifier
                 .padding(pad)
@@ -203,7 +201,7 @@ fun DashboardScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. STATUS POŁĄCZENIA (Na samej górze)
+            // 1. STATUS POŁĄCZENIA
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -297,7 +295,7 @@ fun DashboardScreen(
                 Text("USTAWIENIA")
             }
 
-            // 6. TRYB SPORTOWY (Na samym dole dzięki weight)
+            // 6. TRYB SPORTOWY
             Spacer(modifier = Modifier.weight(1f))
 
             Button(
@@ -361,7 +359,7 @@ fun SportModeScreen(viewModel: AlarmViewModel, onBack: () -> Unit) {
                 )
             }
 
-// DÓŁ
+            // DÓŁ
             ControlButton(
                 icon = Icons.Default.KeyboardArrowDown,
                 desc = "DÓŁ",
@@ -388,10 +386,10 @@ fun ControlButton(
                 detectTapGestures(
                     onPress = {
                         try {
-                            onStart() // Jedź!
-                            tryAwaitRelease() // Czekaj na puszczenie palca
+                            onStart()
+                            tryAwaitRelease()
                         } finally {
-                            onStop() // Zatrzymaj!
+                            onStop()
                         }
                     }
                 )
@@ -408,7 +406,7 @@ fun AlarmsScreen(
     viewModel: AlarmViewModel,
     onBack: () -> Unit,
     onAddAlarm: () -> Unit,
-    onEditAlarm: (Alarm) -> Unit // DODANE
+    onEditAlarm: (Alarm) -> Unit
 ) {
     val alarms by viewModel.allAlarms.collectAsState(initial = emptyList())
     val context = LocalContext.current
@@ -471,13 +469,11 @@ fun AddAlarmScreen(
     onBack: () -> Unit,
     onSave: (Int, Int, String) -> Unit
 ) {
-    // Jeśli edytujemy, bierzemy dane z budzika, jeśli nie - domyślne
     var selectedHour by remember { mutableIntStateOf(initialAlarm?.hour ?: 7) }
     var selectedMinute by remember { mutableIntStateOf(initialAlarm?.minute ?: 0) }
 
     val daysOfWeek = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd")
 
-    // Inicjalizacja zaznaczonych dni przy edycji
     val selectedDays = remember {
         val list = mutableStateListOf<String>()
         initialAlarm?.days?.split(", ")?.filter { it.isNotEmpty() }?.forEach { list.add(it) }
@@ -563,12 +559,10 @@ fun scheduleSystemAlarm(context: Context, alarm: Alarm, cancelOnly: Boolean = fa
         set(Calendar.MILLISECOND, 0)
     }
 
-    // Mapa dni tygodnia (Nd=1, Pn=2, ...)
     val dMap = mapOf("Nd" to 1, "Pn" to 2, "Wt" to 3, "Śr" to 4, "Cz" to 5, "Pt" to 6, "So" to 7)
     val selectedDays = alarm.days.split(", ").filter { it.isNotEmpty() }
 
     if (selectedDays.isEmpty() || alarm.days == "Jutro") {
-        // Jeśli godzina już minęła, ustawiamy na jutro
         if (cal.before(now)) cal.add(Calendar.DATE, 1)
     } else {
         var minTime = Long.MAX_VALUE
@@ -578,7 +572,6 @@ fun scheduleSystemAlarm(context: Context, alarm: Alarm, cancelOnly: Boolean = fa
             val target = dMap[day] ?: continue
             val temp = cal.clone() as Calendar
 
-            // Szukamy najbliższego wystąpienia tego dnia
             while (temp.get(Calendar.DAY_OF_WEEK) != target || temp.before(now)) {
                 temp.add(Calendar.DATE, 1)
             }
@@ -591,7 +584,6 @@ fun scheduleSystemAlarm(context: Context, alarm: Alarm, cancelOnly: Boolean = fa
         cal.timeInMillis = bestCal.timeInMillis
     }
 
-    // Ustawienie dokładnego alarmu
     alarmManager.setExactAndAllowWhileIdle(
         AlarmManager.RTC_WAKEUP,
         cal.timeInMillis,
@@ -721,7 +713,7 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit, onStartAlarmTe
             Spacer(modifier = Modifier.height(8.dp))
 
             Button(
-                onClick = onStartAlarmTest, // Teraz wywołuje skok do ekranu alarmu
+                onClick = onStartAlarmTest,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.Red,
@@ -762,7 +754,6 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit, onStartAlarmTe
                     }
 
                     LazyColumn {
-                        // JAWNE OKREŚLENIE TYPU song: String
                         items(viewModel.robotSongs) { song: String ->
                             TextButton(
                                 onClick = {
@@ -789,7 +780,6 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit, onStartAlarmTe
     }
 
     if (showWifiDialog) {
-        // Gdy otwieramy okno, odświeżamy listę
         LaunchedEffect(Unit) {
             viewModel.refreshWifiList()
         }
@@ -811,7 +801,6 @@ fun SettingsScreen(viewModel: AlarmViewModel, onBack: () -> Unit, onStartAlarmTe
                         Text("Brak sieci. Kliknij skanuj.", color = Color.Gray)
                     }
 
-                    // JAWNE określenie typu (ssid: String) naprawia błąd kompilatora
                     viewModel.availableWifi.forEach { ssid: String ->
                         Row(
                             Modifier
@@ -870,29 +859,21 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
     val startTime = remember { System.currentTimeMillis() }
     var isFinishing by remember { mutableStateOf(false) }
 
+    // Pobieramy pytanie z ViewModelu
     val currentQuestion = viewModel.activeQuestion.value
     val isRobotMuted = viewModel.isRobotMuted.value
     val isInputMode = viewModel.isInputMode.value
 
-    // Ładowanie pytania / zadania przy starcie i każdej nowej próbie
-    LaunchedEffect(attempts) {
-        if (!isInputMode) {
-            // W trybie ABCD pobieramy nowe pytanie z bazy
-            viewModel.triggerAlarmSequence()
-        } else {
-            // W trybie INPUT generujemy nowe zadanie matematyczne
-            viewModel.triggerAlarmSequence()
-        }
-        timeLeft = 20
-        userInput = ""
+    LaunchedEffect(Unit) {
+        viewModel.triggerAlarmSequence()
     }
 
-    // Zarządzanie wibracjami
+    // Wibracje
     LaunchedEffect(isRobotMuted, isFinishing) {
         if (!isRobotMuted && !isFinishing) startVibration(context) else stopVibration(context)
     }
 
-    // Licznik czasu 20 sekund
+    // Licznik czasu
     LaunchedEffect(isRobotMuted, isFinishing) {
         if (isRobotMuted && !isFinishing) {
             timeLeft = 20
@@ -900,34 +881,24 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                 delay(1000)
                 timeLeft--
             }
-            // Jeśli czas minął (użytkownik nie zdążył odpowiedzieć)
             if (timeLeft <= 0 && !isFinishing && viewModel.isRobotMuted.value) {
                 attempts++
                 if (attempts > 10) {
                     isFinishing = true
-                    scope.launch {
-                        viewModel.sendStopToRobot("LIMIT")
-                        delay(500)
-                        onDismiss()
-                    }
+                    scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
                 } else {
-                    // NAPRAWA BŁĘDU: Używamy "TIMEOUT" zamiast nieistniejącego label
                     viewModel.handleWrongAnswer("TIMEOUT")
                 }
             }
         }
     }
 
-    // UI ALARMU
     Column(
         modifier = Modifier.fillMaxSize().background(if (!isRobotMuted) Color.Red else Color(0xFF1A1A1A)).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = if (!isRobotMuted) "ROBOT UCIEKA!" else "ROBOT WYCISZONY",
-            fontSize = 32.sp, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-        )
+        Text(text = if (!isRobotMuted) "ROBOT UCIEKA!" else "ROBOT WYCISZONY", fontSize = 32.sp, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Text(text = "Próba: $attempts/10", fontSize = 20.sp, color = Color.LightGray)
 
         if (isRobotMuted) {
@@ -935,51 +906,45 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
             Spacer(modifier = Modifier.height(40.dp))
 
             if (isInputMode) {
-                // --- TRYB INPUT ---
+                // TRYB INPUT
                 OutlinedTextField(
                     value = userInput,
                     onValueChange = { userInput = it },
                     modifier = Modifier.fillMaxWidth(0.7f),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
-                Spacer(modifier = Modifier.height(20.dp))
-                Button(
-                    onClick = {
-                        if (isFinishing || userInput.isEmpty()) return@Button
-                        if (userInput.toIntOrNull() == viewModel.currentMathResult.intValue) {
-                            isFinishing = true
-                            scope.launch {
-                                viewModel.sendStopToRobot(userInput)
-                                stopVibration(context)
-                                viewModel.saveStat(((System.currentTimeMillis() - startTime) / 1000).toInt(), attempts)
-                                delay(500)
-                                onDismiss()
-                            }
-                        } else {
-                            attempts++
-                            if (attempts > 10) {
-                                isFinishing = true
-                                scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
-                            } else {
-                                // NAPRAWA BŁĘDU: Używamy userInput zamiast nieistniejącego label
-                                viewModel.handleWrongAnswer(userInput)
-                            }
+                Button(onClick = {
+                    if (isFinishing || userInput.isEmpty()) return@Button
+                    if (userInput.toIntOrNull() == viewModel.currentMathResult.intValue) {
+                        isFinishing = true
+                        scope.launch {
+                            viewModel.sendStopToRobot(userInput)
+                            stopVibration(context)
+                            viewModel.saveStat(((System.currentTimeMillis() - startTime) / 1000).toInt(), attempts)
+                            delay(500)
+                            onDismiss()
                         }
-                    },
-                    modifier = Modifier.size(200.dp, 60.dp)
-                ) { Text("SPRAWDZ") }
+                    } else {
+                        attempts++
+                        if (attempts > 10) {
+                            isFinishing = true
+                            scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
+                        } else viewModel.handleWrongAnswer(userInput)
+                        userInput = ""
+                    }
+                }) { Text("SPRAWDZ") }
             } else {
-                // --- TRYB ABCD ---
+                // TRYB ABCD
                 val labels = listOf("A", "B", "C", "D")
                 labels.chunked(2).forEach { row ->
                     Row {
                         row.forEach { label ->
                             Button(
                                 onClick = {
-                                    if (isFinishing) return@Button
+                                    if (isFinishing || currentQuestion == null) return@Button
 
-                                    if (label.equals(currentQuestion?.correct, ignoreCase = true)) {
+                                    if (label.equals(currentQuestion.correct, ignoreCase = true)) {
                                         isFinishing = true
                                         scope.launch {
                                             viewModel.sendStopToRobot(label)
@@ -994,14 +959,12 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                                             isFinishing = true
                                             scope.launch { viewModel.sendStopToRobot("FAIL"); delay(500); onDismiss() }
                                         } else {
-                                            // Tutaj 'label' istnieje, bo jest częścią pętli forEach
                                             viewModel.handleWrongAnswer(label)
                                         }
                                     }
                                 },
-                                modifier = Modifier.padding(10.dp).size(140.dp, 90.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-                            ) { Text(label, fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+                                modifier = Modifier.padding(10.dp).size(140.dp, 90.dp)
+                            ) { Text(label, fontSize = 28.sp) }
                         }
                     }
                 }
@@ -1010,12 +973,8 @@ fun AlarmPuzzleScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
 
         if (!isRobotMuted && !isFinishing) {
             Spacer(modifier = Modifier.height(40.dp))
-            Button(
-                onClick = { viewModel.isRobotMuted.value = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Green, contentColor = Color.Black),
-                modifier = Modifier.fillMaxWidth(0.8f).height(60.dp)
-            ) {
-                Text("[ SYMULUJ PRZYCISK NA ROBOCIE ]", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Button(onClick = { viewModel.isRobotMuted.value = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.Green)) {
+                Text("[ SYMULUJ PRZYCISK ]")
             }
         }
     }

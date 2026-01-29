@@ -21,8 +21,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
     val allAlarms: Flow<List<Alarm>> = alarmDao.getAllAlarms()
     val allStats = alarmDao.getRecentStats()
-
-    // --- STANY ---
     var isDarkMode = mutableStateOf(settings.isDarkTheme())
     var volume = mutableStateOf(settings.getVolume())
     var robotSpeed = mutableStateOf(settings.getRobotSpeed())
@@ -38,10 +36,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     // Stan skanowania WiFi i Muzyki
     var availableWifi = mutableStateListOf<String>()
     var isScanningWifi = mutableStateOf(false)
-    var robotSongs = mutableStateListOf<String>() // NAPRAWA BŁĘDU
-    var isScanningSongs = mutableStateOf(false)    // NAPRAWA BŁĘDU
-
-    // Napisy na Dashboardzie
+    var robotSongs = mutableStateListOf<String>()
+    var isScanningSongs = mutableStateOf(false)
     var nextAlarmInfo = mutableStateOf("Brak aktywnych budzików")
     var nextAlarmCountdown = mutableStateOf("")
 
@@ -54,7 +50,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             val success = RobotConnector.connectToRobot("Budzik_Robot")
             isBluetoothConnected.value = success
             if (success) {
-                // Synchronizuj czas zaraz po połączeniu
                 RobotConnector.sendCurrentTimeToRobot()
                 startTimeSyncLoop()
 
@@ -80,7 +75,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         timeSyncJob?.cancel()
         timeSyncJob = viewModelScope.launch(Dispatchers.IO) {
             while (isBluetoothConnected.value) {
-                delay(3600000) // Co godzinę
+                delay(3600000)
                 RobotConnector.sendCurrentTimeToRobot()
             }
         }
@@ -145,14 +140,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         isRobotMuted.value = false
         viewModelScope.launch {
             val speed = robotSpeed.value.toInt()
-            val vol = volume.value.toInt() // Pobieramy głośność z suwaka
-            val song = selectedSong.value   // Pobieramy nazwę piosenki
+            val vol = volume.value.toInt()
+            val song = selectedSong.value
 
             if (isInputMode.value) {
                 val problem = generateMathProblem()
                 RobotConnector.sendMathData(problem, currentMathResult.intValue, speed, vol, song)
             } else {
                 val question = alarmDao.getRandomQuestion()
+                activeQuestion.value = question
                 question?.let {
                     RobotConnector.sendAlarmData(it, speed, vol, song)
                 }
@@ -166,19 +162,13 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendStopToRobot(userChoice: String) {
-        // .lowercase() sprawi, że "B" zamieni się w "b", a "15" zostanie "15"
-        val formattedChoice = userChoice.lowercase(Locale.getDefault())
-        RobotConnector.sendAlarmStop(formattedChoice)
-        Log.d("RobotAlarm", "Wysłano sygnał STOP z wynikiem: $formattedChoice")
+        RobotConnector.sendAlarmStop(userChoice.lowercase())
     }
 
     fun handleWrongAnswer(userChoice: String) {
         viewModelScope.launch {
-            val choice = userChoice.lowercase()
-            RobotConnector.sendToRobot("ALARM_WRONG|$choice")
-            Log.d("RobotAlarm", "Wysłano do robota informację o błędzie: $choice")
+            RobotConnector.sendToRobot("ALARM_WRONG|${userChoice.lowercase()}")
             delay(1500)
-
             triggerAlarmSequence()
         }
     }
@@ -224,7 +214,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun updateVolume(newVol: Float) {
         volume.value = newVol
         settings.saveVolume(newVol)
-        // NATYCHMIASTOWA SYNCHRONIZACJA
         if (isBluetoothConnected.value) {
             RobotConnector.sendVolume(newVol.toInt())
         }
@@ -233,7 +222,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSpeed(newSpeed: Float) {
         robotSpeed.value = newSpeed
         settings.saveRobotSpeed(newSpeed)
-        // NATYCHMIASTOWA SYNCHRONIZACJA (dla trybu sportowego)
         if (isBluetoothConnected.value) {
             RobotConnector.sendSpeed(newSpeed.toInt())
         }

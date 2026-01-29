@@ -8,12 +8,9 @@ import android.util.Log
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.d("RobotAlarm", "System wywołał alarm!")
-
-        // To jest ten moment, który wyciąga apkę na wierzch!
         val alarmIntent = Intent(context, MainActivity::class.java).apply {
-            // Flagi, które mówią: "Otwórz to okno na samym przodzie, nawet jak apka śpi"
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("from_alarm", true) // Przekazujemy flagę do głównego pliku
+            putExtra("from_alarm", true)
         }
 
         try {
